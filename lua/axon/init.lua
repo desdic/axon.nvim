@@ -3,7 +3,7 @@ local ui = require("axon.ui")
 
 local M = {}
 
-M.cli_version = "0.1"
+M.cli_version = "0.2"
 
 local defaults = {
 	cmd = "axon-cli",
@@ -40,10 +40,16 @@ local function source_file(bufnr)
 end
 
 local function display_name(request)
-	return request.label and (request.selector .. " " .. request.label) or request.selector
+	return request.selector
 end
 
-local function execute(file, requests, cleanup)
+local function cleanup(tmp)
+	if tmp then
+		os.remove(tmp)
+	end
+end
+
+local function execute(file, requests, tmp)
 	local cfg = M.config
 	local display = #requests == 1 and display_name(requests[1]) or string.format("all %d requests", #requests)
 	local cmd = { vim.fn.expand(cfg.cmd), "-f", file }
@@ -66,9 +72,7 @@ local function execute(file, requests, cleanup)
 		cmd,
 		{ text = true },
 		vim.schedule_wrap(function(result)
-			if cleanup then
-				os.remove(cleanup)
-			end
+			cleanup(tmp)
 			local json_opts = { luanil = { object = true, array = true } }
 			local ok, decoded = pcall(vim.json.decode, result.stdout or "", json_opts)
 			if not ok or type(decoded) ~= "table" then
@@ -103,8 +107,8 @@ local function execute(file, requests, cleanup)
 	)
 end
 
-local function run_request(bufnr, request)
-	local file, tmp = source_file(bufnr)
+-- `file` is the snapshot the request was listed from, so its index matches.
+local function run_request(bufnr, request, file, tmp)
 	-- Remember the real buffer so a rerun picks up later edits.
 	last = { bufnr = bufnr, request = request }
 	execute(file, { request }, tmp)
@@ -113,53 +117,58 @@ end
 function M.run()
 	local bufnr = vim.api.nvim_get_current_buf()
 	local row = vim.api.nvim_win_get_cursor(0)[1] - 1
-	local request, err = parser.request_at(bufnr, row)
+	local file, tmp = source_file(bufnr)
+	local request, err = parser.request_at(file, row)
 	if not request then
+		cleanup(tmp)
 		vim.notify("axon: " .. err, vim.log.levels.WARN)
 		return
 	end
-	run_request(bufnr, request)
+	run_request(bufnr, request, file, tmp)
 end
 
+-- Lists the buffer's requests; on success also returns the file they were
+-- listed from and the temp file to remove afterwards, if any.
 local function buffer_requests(bufnr)
-	local requests, err = parser.requests(bufnr)
+	local file, tmp = source_file(bufnr)
+	local requests, err = parser.requests(file)
+	if requests and #requests == 0 then
+		requests, err = nil, "no requests in this buffer"
+	end
 	if not requests then
+		cleanup(tmp)
 		vim.notify("axon: " .. err, vim.log.levels.WARN)
 		return nil
 	end
-	if #requests == 0 then
-		vim.notify("axon: no requests in this buffer", vim.log.levels.WARN)
-		return nil
-	end
-	return requests
+	return requests, file, tmp
 end
 
 function M.pick()
 	local bufnr = vim.api.nvim_get_current_buf()
-	local requests = buffer_requests(bufnr)
+	local requests, file, tmp = buffer_requests(bufnr)
 	if not requests then
 		return
 	end
 	vim.ui.select(requests, {
 		prompt = "Axon request",
 		format_item = function(request)
-			local target = request.method and (request.method .. " " .. request.url) or request.url
-			return string.format("%s  %s", display_name(request), target)
+			return string.format("%s  %s %s", display_name(request), request.method, request.url)
 		end,
 	}, function(request)
 		if request then
-			run_request(bufnr, request)
+			run_request(bufnr, request, file, tmp)
+		else
+			cleanup(tmp)
 		end
 	end)
 end
 
 function M.run_all()
 	local bufnr = vim.api.nvim_get_current_buf()
-	local requests = buffer_requests(bufnr)
+	local requests, file, tmp = buffer_requests(bufnr)
 	if not requests then
 		return
 	end
-	local file, tmp = source_file(bufnr)
 	last = { bufnr = bufnr, all = true }
 	execute(file, requests, tmp)
 end
@@ -173,12 +182,15 @@ function M.rerun()
 		vim.notify("axon: the buffer of the last request is gone", vim.log.levels.WARN)
 		return
 	end
-	local requests = last.all and buffer_requests(last.bufnr) or { last.request }
-	if not requests then
+	if last.all then
+		local requests, file, tmp = buffer_requests(last.bufnr)
+		if requests then
+			execute(file, requests, tmp)
+		end
 		return
 	end
 	local file, tmp = source_file(last.bufnr)
-	execute(file, requests, tmp)
+	execute(file, { last.request }, tmp)
 end
 
 return M
