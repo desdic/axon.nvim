@@ -9,7 +9,6 @@ Run requests from `.http` files in Neovim using [axon-cli](https://github.com/de
 ## Requirements
 
 - Neovim 0.12+
-- The tree-sitter `http` parser (`:TSInstall http`)
 - `axon-cli` on `$PATH`, or set with `cmd`
 - `jq` (optional), which pretty-prints JSON bodies without changing key order
 
