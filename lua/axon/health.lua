@@ -56,12 +56,6 @@ function M.check()
 		health.error("Neovim 0.10 or newer is required")
 	end
 
-	if pcall(vim.treesitter.language.inspect, "http") then
-		health.ok("tree-sitter parser for `http` is installed")
-	else
-		health.error("tree-sitter parser for `http` is not installed", { ":TSInstall http" })
-	end
-
 	health.start("axon-cli")
 	check_cli(axon)
 
