@@ -3,7 +3,7 @@ local ui = require("axon.ui")
 
 local M = {}
 
-M.cli_version = "0.2"
+M.cli_version = "0.3"
 
 local defaults = {
 	cmd = "axon-cli",
@@ -43,6 +43,43 @@ local function display_name(request)
 	return request.selector
 end
 
+-- Turns the `--with-deps` output (every response in the order sent; a looping
+-- request is one slot holding its iterations) into a flat list of entries.
+-- Returns the entries and, when exactly one non-looping request was selected,
+-- the position of its response.
+local function flatten(decoded, requests)
+	local by_index = {}
+	for _, request in ipairs(requests) do
+		by_index[request.index] = request
+	end
+	local function name_of(response)
+		local request = by_index[response.index]
+		if request and not response.dependency then
+			return display_name(request)
+		end
+		return response.name or ("#" .. tostring(response.index))
+	end
+
+	local entries, selected, looped = {}, {}, false
+	for _, slot in ipairs(vim.islist(decoded) and decoded or { decoded }) do
+		if vim.islist(slot) then
+			looped = true
+			for i, iteration in ipairs(slot) do
+				iteration.name = string.format("%s [%d]", name_of(iteration), i - 1)
+				table.insert(entries, iteration)
+			end
+		else
+			slot.name = name_of(slot)
+			table.insert(entries, slot)
+			if not slot.dependency then
+				table.insert(selected, #entries)
+			end
+		end
+	end
+	local target = (#requests == 1 and not looped) and selected[1] or nil
+	return entries, target
+end
+
 local function cleanup(tmp)
 	if tmp then
 		os.remove(tmp)
@@ -56,7 +93,9 @@ local function execute(file, requests, tmp)
 	for _, request in ipairs(requests) do
 		vim.list_extend(cmd, { "-n", request.selector })
 	end
-	table.insert(cmd, "--json")
+	-- --with-deps also prints the requests that ran only because a selected
+	-- one references their response, so the whole chain can be shown.
+	vim.list_extend(cmd, { "--json", "--with-deps" })
 	for _, arg in ipairs(cfg.args) do
 		table.insert(cmd, (vim.fn.expand(arg)))
 	end
@@ -90,18 +129,16 @@ local function execute(file, requests, tmp)
 			end
 
 			local elapsed = math.floor((vim.uv.hrtime() - started) / 1e6)
-			-- Several -n flags produce an array, in the order given.
-			local responses = vim.islist(decoded) and decoded or { decoded }
-			for i, response in ipairs(responses) do
-				if requests[i] then
-					response.name = display_name(requests[i])
-				end
-			end
-			if #responses == 1 then
-				responses[1].duration_ms = elapsed
-				ui.show(responses[1], cfg)
+			local entries, target = flatten(decoded, requests)
+			if #entries == 0 then
+				ui.info(display, "Nothing was sent: the @foreach array is empty.", cfg)
+			elseif #entries == 1 and target then
+				entries[1].duration_ms = elapsed
+				ui.show(entries[1], cfg)
 			else
-				ui.show_all(responses, elapsed, cfg)
+				-- With one selected request (and its dependencies), open its
+				-- response right away; <BS> goes to the whole chain.
+				ui.show_all(entries, elapsed, cfg, target)
 			end
 		end)
 	)

@@ -73,3 +73,12 @@ vim.api.nvim_create_autocmd("FileType", {
 | `:AxonPick` | Pick a request in the buffer from a list (`vim.ui.select`) and run it |
 | `:AxonRerun` | Run the last request (or all of them, after `:AxonRunAll`) again, picking up any edits |
 | `:AxonToggleHeaders` | Switch the response between body and status line + headers |
+
+## Chained requests and loops
+
+Requests that use another request's response (`{{login.response.body.$.token}}`) or loop over one (`# @foreach`) are run by axon-cli together with their dependencies, and the plugin shows the whole chain:
+
+- `:AxonRun` on a request with dependencies opens its response directly; the winbar shows `2/2` and `<BS>` goes back to the list of every response sent, with dependencies dimmed and marked `dependency`. `<CR>` opens any of them, e.g. to see what `login` returned.
+- A looping request shows one row per iteration (`details [0]`, `details [1]`, …).
+
+This needs axon-cli 0.3 or newer (it uses `--json --with-deps`).
