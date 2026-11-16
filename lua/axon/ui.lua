@@ -201,6 +201,10 @@ local function render_summary(opts)
 		)
 		table.insert(lines, line)
 		table.insert(marks, { row = i - 1, col = 4, end_col = 4 + #status, hl = status_hl(response.status.code) })
+		if response.dependency then
+			local name_col = 4 + math.max(22, #status) + 2
+			table.insert(marks, { row = i - 1, col = name_col, end_col = name_col + #name, hl = "Comment" })
+		end
 	end
 	set_lines(bufnr, lines, "axon")
 
@@ -208,19 +212,31 @@ local function render_summary(opts)
 	for _, mark in ipairs(marks) do
 		vim.api.nvim_buf_set_extmark(bufnr, ns, mark.row, mark.col, { end_col = mark.end_col, hl_group = mark.hl })
 	end
+	for i, response in ipairs(state.responses) do
+		if response.dependency then
+			vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, 0, {
+				virt_text = { { "  dependency", "Comment" } },
+				virt_text_pos = "eol",
+			})
+		end
+	end
 
-	local failed = 0
+	local failed, deps = 0, 0
 	for _, response in ipairs(state.responses) do
 		if response.status.code >= 400 then
 			failed = failed + 1
 		end
+		if response.dependency then
+			deps = deps + 1
+		end
 	end
 	set_winbar(
 		string.format(
-			" %s%d requests%s%%*%%#Comment#%s%s%%*",
+			" %s%d requests%s%%*%%#Comment#%s%s%s%%*",
 			failed > 0 and "%#DiagnosticWarn#" or "%#DiagnosticOk#",
 			#state.responses,
 			failed > 0 and string.format(", %d 4xx/5xx", failed) or "",
+			deps > 0 and string.format(" · %d %s", deps, deps == 1 and "dependency" or "dependencies") or "",
 			state.total_ms and string.format(" · %d ms", state.total_ms) or "",
 			hint(opts.keymaps.open, "to open")
 		)
@@ -241,17 +257,18 @@ local function render_response(response, opts)
 	local code = response.status.code
 	set_winbar(
 		string.format(
-			"%%#%s# %d %s %%*  %s%s  %%#Comment#%s%s · [%s]%s%s%%*",
+			"%%#%s# %d %s %%*  %s%s%s  %%#Comment#%s%s · [%s]%s%s%%*",
 			status_hl(code),
 			code,
 			escape(response.status.reason or ""),
 			position,
 			escape(response.name or ""),
+			response.dependency and " %#Comment#(dependency)%*" or "",
 			escape(response.url or ""),
 			response.duration_ms and string.format(" · %d ms", response.duration_ms) or "",
 			state.view,
 			hint(opts.keymaps.toggle_headers, "to toggle"),
-			state.summary and hint(opts.keymaps.back, "for all") or ""
+			state.summary and hint(opts.keymaps.back, state.chain and "for the chain" or "for all") or ""
 		)
 	)
 	set_cursor(1)
@@ -290,21 +307,34 @@ function M.show(response, opts)
 	render(opts)
 end
 
---- Displays the responses of several requests as a summary list.
-function M.show_all(responses, total_ms, opts)
+--- Displays the responses of several requests as a summary list, or, with
+--- `open`, the response at that position, with <BS> going back to the list.
+function M.show_all(responses, total_ms, opts, open)
 	prepare(opts)
-	state.responses, state.summary, state.current, state.total_ms = responses, true, nil, total_ms
-	state.summary_row = 1
+	state.responses, state.summary, state.current, state.total_ms = responses, true, open, total_ms
+	state.summary_row = open or 1
+	state.chain = vim.iter(responses):any(function(response)
+		return response.dependency == true
+	end)
 	render(opts)
 end
 
---- Displays an error in the response buffer.
-function M.error(name, message, opts)
+local function message(name, text, tag, hl, opts)
 	local bufnr = prepare(opts)
 	state.responses, state.summary, state.current = {}, false, nil
 	vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-	set_lines(bufnr, vim.split(message, "\n", { plain = true }), "text")
-	set_winbar(string.format("%%#DiagnosticError# error %%*  %s", escape(name or "")))
+	set_lines(bufnr, vim.split(text, "\n", { plain = true }), "text")
+	set_winbar(string.format("%%#%s# %s %%*  %s", hl, tag, escape(name or "")))
+end
+
+--- Displays an error in the response buffer.
+function M.error(name, text, opts)
+	message(name, text, "error", "DiagnosticError", opts)
+end
+
+--- Displays a notice (not an error) in the response buffer.
+function M.info(name, text, opts)
+	message(name, text, "info", "DiagnosticInfo", opts)
 end
 
 --- Switches between the body and the status line/headers view.
