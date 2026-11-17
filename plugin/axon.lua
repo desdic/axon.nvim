@@ -19,6 +19,13 @@ vim.api.nvim_create_user_command("AxonRerun", function()
 	require("axon").rerun()
 end, { desc = "Run the last axon request again" })
 
+vim.api.nvim_create_user_command("AxonCopy", function(cmd)
+	require("axon").copy(cmd.bang)
+end, {
+	bang = true,
+	desc = "Copy the axon-cli command for the HTTP request under the cursor (! adds --json --with-deps)",
+})
+
 vim.api.nvim_create_user_command("AxonToggleHeaders", function()
 	require("axon.ui").toggle_view()
 end, { desc = "Toggle the axon response between body and headers" })
