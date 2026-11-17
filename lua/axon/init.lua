@@ -18,6 +18,7 @@ local defaults = {
 		toggle_headers = "H",
 		rerun = "R",
 		close = "q",
+		copy_command = "yc", -- copy the axon-cli command of the last run
 		-- in the summary after :AxonRunAll
 		open = "<CR>",
 		back = "<BS>",
@@ -123,6 +124,34 @@ local function flatten(decoded, requests, skipped)
 	return entries, target
 end
 
+-- The axon-cli command that runs `requests` from `file`; `json` adds
+-- `--json --with-deps`, which the plugin needs to read the output.
+local function build_cmd(file, requests, json)
+	local cfg = M.config
+	local cmd = { vim.fn.expand(cfg.cmd), "-f", file }
+	for _, request in ipairs(requests) do
+		vim.list_extend(cmd, { "-n", request.selector })
+	end
+	if json then
+		vim.list_extend(cmd, { "--json", "--with-deps" })
+	end
+	if cfg.strict then
+		table.insert(cmd, "--strict")
+	end
+	for _, arg in ipairs(cfg.args) do
+		table.insert(cmd, (vim.fn.expand(arg)))
+	end
+	return cmd
+end
+
+-- Quotes an argument for a POSIX shell, leaving plain words as they are.
+local function shell_quote(arg)
+	if arg:match("^[%w%%%+,%-%./:=@_~]+$") then
+		return arg
+	end
+	return "'" .. (arg:gsub("'", [['\'']])) .. "'"
+end
+
 local function cleanup(tmp)
 	if tmp then
 		os.remove(tmp)
@@ -134,19 +163,9 @@ end
 local function execute(bufnr, file, requests, listing, tmp)
 	local cfg = M.config
 	local display = #requests == 1 and display_name(requests[1]) or string.format("all %d requests", #requests)
-	local cmd = { vim.fn.expand(cfg.cmd), "-f", file }
-	for _, request in ipairs(requests) do
-		vim.list_extend(cmd, { "-n", request.selector })
-	end
 	-- --with-deps also prints the requests that ran only because a selected
 	-- one references their response, so the whole chain can be shown.
-	vim.list_extend(cmd, { "--json", "--with-deps" })
-	if cfg.strict then
-		table.insert(cmd, "--strict")
-	end
-	for _, arg in ipairs(cfg.args) do
-		table.insert(cmd, (vim.fn.expand(arg)))
-	end
+	local cmd = build_cmd(file, requests, true)
 
 	if vim.fn.executable(cmd[1]) ~= 1 then
 		cleanup(tmp)
@@ -268,6 +287,68 @@ function M.run_all()
 	end
 	last = { bufnr = bufnr, all = true }
 	execute(bufnr, file, requests, requests, tmp)
+end
+
+-- Copies the axon-cli command for `requests` in buffer `bufnr` to the
+-- clipboard (and the unnamed register) and echoes it.
+local function copy_command(bufnr, requests, json)
+	local path = vim.api.nvim_buf_get_name(bufnr)
+	if path == "" then
+		vim.notify("axon: save the buffer first; axon-cli reads the file", vim.log.levels.WARN)
+		return
+	end
+	local file = vim.fn.fnamemodify(path, ":~:.")
+	if file:sub(1, 1) == "~" and not file:match("^[%w%%%+,%-%./:=@_~]+$") then
+		file = path -- a quoted ~ would not expand
+	end
+	local cmd = build_cmd(file, requests, json)
+	-- Shorten a path to ~/...; a bare name like `axon-cli` is found on $PATH.
+	if cmd[1]:find("/", 1, true) then
+		cmd[1] = vim.fn.fnamemodify(cmd[1], ":~")
+	end
+	local text = table.concat(vim.tbl_map(shell_quote, cmd), " ")
+	vim.fn.setreg('"', text)
+	if vim.fn.has("clipboard") == 1 then
+		pcall(vim.fn.setreg, "+", text)
+	end
+	local note = vim.bo[bufnr].modified and "  (unsaved changes are not in the file)" or ""
+	vim.api.nvim_echo({ { "axon: copied ", "Comment" }, { text }, { note, "WarningMsg" } }, true, {})
+end
+
+--- Copies the axon-cli command for the request under the cursor; `json`
+--- adds `--json --with-deps`, as the plugin runs it.
+function M.copy(json)
+	local bufnr = vim.api.nvim_get_current_buf()
+	local row = vim.api.nvim_win_get_cursor(0)[1] - 1
+	local listing, _, tmp = buffer_requests(bufnr)
+	cleanup(tmp)
+	if not listing then
+		return
+	end
+	for _, request in ipairs(listing) do
+		if row >= request.start_row and row <= request.end_row then
+			copy_command(bufnr, { request }, json)
+			return
+		end
+	end
+	vim.notify("axon: no request under the cursor", vim.log.levels.WARN)
+end
+
+--- Copies the axon-cli command of the last run (every request after :AxonRunAll).
+function M.copy_last(json)
+	if not last or not vim.api.nvim_buf_is_valid(last.bufnr) then
+		vim.notify("axon: no request has been run yet", vim.log.levels.WARN)
+		return
+	end
+	if last.all then
+		local listing, _, tmp = buffer_requests(last.bufnr)
+		cleanup(tmp)
+		if listing then
+			copy_command(last.bufnr, listing, json)
+		end
+		return
+	end
+	copy_command(last.bufnr, { last.request }, json)
 end
 
 function M.rerun()

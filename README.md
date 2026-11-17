@@ -25,7 +25,7 @@ require("axon").setup({
   jq = "jq",                  -- jq for formatting
   strict = false,             -- pass --strict: a failed @warn fails the run like @assert
   diagnostics = true,         -- show failed checks as diagnostics in the .http buffer
-  keymaps = { toggle_headers = "H", rerun = "R", close = "q", open = "<CR>", back = "<BS>" }, -- false disables
+  keymaps = { toggle_headers = "H", rerun = "R", close = "q", copy_command = "yc", open = "<CR>", back = "<BS>" }, -- false disables
 })
 ```
 ## Setup
@@ -74,6 +74,7 @@ vim.api.nvim_create_autocmd("FileType", {
 | `:AxonRunAll` | Run every request in the buffer, in order, in one axon-cli call so cookies carry over |
 | `:AxonPick` | Pick a request in the buffer from a list (`vim.ui.select`) and run it |
 | `:AxonRerun` | Run the last request (or all of them, after `:AxonRunAll`) again, picking up any edits |
+| `:AxonCopy[!]` | Copy the axon-cli command for the request under the cursor to the clipboard and show it; `!` adds `--json --with-deps`, as the plugin runs it. `yc` in the response window copies the command of the last run |
 | `:AxonToggleHeaders` | Switch the response between body and status line + headers |
 
 ## Chained requests and loops
