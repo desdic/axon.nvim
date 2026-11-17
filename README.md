@@ -81,4 +81,4 @@ Requests that use another request's response (`{{login.response.body.$.token}}`)
 - `:AxonRun` on a request with dependencies opens its response directly; the winbar shows `2/2` and `<BS>` goes back to the list of every response sent, with dependencies dimmed and marked `dependency`. `<CR>` opens any of them, e.g. to see what `login` returned.
 - A looping request shows one row per iteration (`details [0]`, `details [1]`, …).
 
-This needs axon-cli 0.3 or newer (it uses `--json --with-deps`).
+This needs axon-cli 0.4 or newer (it uses `--json --with-deps`).

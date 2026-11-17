@@ -3,7 +3,7 @@ local ui = require("axon.ui")
 
 local M = {}
 
-M.cli_version = "0.3"
+M.cli_version = "0.4"
 
 local defaults = {
 	cmd = "axon-cli",
