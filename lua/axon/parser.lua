@@ -50,22 +50,4 @@ function M.requests(file)
 	return requests
 end
 
---- Returns the request whose block holds `row` (0-based), or nil and an error.
----@param file string
----@param row integer
----@return axon.Request|nil
----@return string|nil err
-function M.request_at(file, row)
-	local requests, err = M.requests(file)
-	if not requests then
-		return nil, err
-	end
-	for _, request in ipairs(requests) do
-		if row >= request.start_row and row <= request.end_row then
-			return request
-		end
-	end
-	return nil, "no request under the cursor"
-end
-
 return M
