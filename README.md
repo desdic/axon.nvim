@@ -23,6 +23,8 @@ require("axon").setup({
   split = "botright vsplit",  -- command to split window
   format_json = true,         -- format json
   jq = "jq",                  -- jq for formatting
+  strict = false,             -- pass --strict: a failed @warn fails the run like @assert
+  diagnostics = true,         -- show failed checks as diagnostics in the .http buffer
   keymaps = { toggle_headers = "H", rerun = "R", close = "q", open = "<CR>", back = "<BS>" }, -- false disables
 })
 ```
@@ -81,4 +83,12 @@ Requests that use another request's response (`{{login.response.body.$.token}}`)
 - `:AxonRun` on a request with dependencies opens its response directly; the winbar shows `2/2` and `<BS>` goes back to the list of every response sent, with dependencies dimmed and marked `dependency`. `<CR>` opens any of them, e.g. to see what `login` returned.
 - A looping request shows one row per iteration (`details [0]`, `details [1]`, …).
 
-This needs axon-cli 0.4 or newer (it uses `--json --with-deps`).
+## Checks
+
+`# @assert`, `# @warn` and `# @notice` lines (see the [axon-cli README](https://github.com/desdic/axon-cli#checks)) are shown in three places:
+
+- **The `.http` buffer**: each failed check is a diagnostic on its line (`@assert` an error, `@warn` a warning, `@notice` info), so it shows in the sign column and `]d`/`[d` jump between them. For a looping request, the message names the element (`[1] @notice …`). A request that was not sent because a request it uses failed an assert gets an info diagnostic on its `###` line. Each run replaces the previous run's diagnostics. Set `diagnostics = false` to turn this off.
+- **The response window**: the winbar shows `✓ 3 checks` when everything passed, or the failures per level (`✗ 1 assert ⚠ 1 warn`). The failed checks are listed above the body, and the headers view (`H`) ends with a `# checks` section listing every check, passing ones included.
+- **The summary list**: each row shows its check results; skipped requests are `SKIP` rows with the reason, and the winbar shows axon-cli's summary (`1 check failed, 1 request skipped`).
+
+This needs axon-cli 0.5 (it uses `--json --with-deps` and the `checks` field).

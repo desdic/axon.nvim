@@ -1,4 +1,6 @@
 -- Renders axon-cli responses into a reusable response buffer.
+local checks = require("axon.checks")
+
 local M = {}
 
 local BUF_NAME = "axon://response"
@@ -12,6 +14,7 @@ local state = {
 	current = nil, -- index into `responses` being shown; nil for the summary
 	summary_row = 1, -- cursor row to restore when going back to the summary
 	total_ms = nil,
+	run_summary = nil, -- axon-cli's summary when checks failed, e.g. "1 check failed"
 	view = "body", -- "body" | "headers"
 }
 
@@ -89,6 +92,17 @@ local function header_lines(response)
 			table.insert(lines, type(cookie) == "string" and cookie or vim.json.encode(cookie))
 		end
 	end
+	if response.checks and #response.checks > 0 then
+		table.insert(lines, "")
+		table.insert(lines, "# checks")
+		for _, check in ipairs(response.checks) do
+			local line = string.format("%s @%s %s", check.ok and "✓" or "✗", check.level, check.check)
+			if not check.ok then
+				line = line .. ": " .. (check.error or "failed")
+			end
+			table.insert(lines, line)
+		end
+	end
 	return lines
 end
 
@@ -105,6 +119,37 @@ end
 
 local function escape(s)
 	return (s:gsub("%%", "%%%%"))
+end
+
+-- Check results as {text, hl} chunks: the failures per level, or a single
+-- "✓ N checks" when all passed; empty for a response without checks.
+local function check_chunks(response)
+	local counts = checks.count(response)
+	if counts.total == 0 then
+		return {}
+	end
+	if counts.failed == 0 then
+		return {
+			{ string.format("✓ %d %s", counts.total, counts.total == 1 and "check" or "checks"), "DiagnosticOk" },
+		}
+	end
+	local chunks = {}
+	for _, level in ipairs(checks.order) do
+		if counts[level] > 0 then
+			local spec = checks.levels[level]
+			table.insert(chunks, { string.format("%s %d %s", spec.icon, counts[level], level), spec.hl })
+		end
+	end
+	return chunks
+end
+
+-- The check chunks as winbar text, with a leading separator.
+local function check_badge(response)
+	local parts = {}
+	for _, chunk in ipairs(check_chunks(response)) do
+		table.insert(parts, string.format("%%#%s#%s%%*", chunk[2], escape(chunk[1])))
+	end
+	return #parts > 0 and (" · " .. table.concat(parts, " ")) or ""
 end
 
 local function set_winbar(text)
@@ -169,10 +214,16 @@ local function set_lines(bufnr, lines, filetype)
 	end
 end
 
-local function set_cursor(row)
+-- `topfill` is the number of virtual lines above the first line to show.
+local function set_cursor(row, topfill)
 	for _, win in ipairs(vim.fn.win_findbuf(state.bufnr)) do
 		local max = vim.api.nvim_buf_line_count(state.bufnr)
 		vim.api.nvim_win_set_cursor(win, { math.min(row, max), 0 })
+		if topfill then
+			vim.api.nvim_win_call(win, function()
+				vim.fn.winrestview({ topline = 1, topfill = topfill })
+			end)
+		end
 	end
 end
 
@@ -189,7 +240,8 @@ local function render_summary(opts)
 
 	local lines, marks = {}, {}
 	for i, response in ipairs(state.responses) do
-		local status = string.format("%d %s", response.status.code, response.status.reason or "")
+		local status = response.skipped and "SKIP"
+			or string.format("%d %s", response.status.code, response.status.reason or "")
 		local name = response.name or ""
 		local line = string.format(
 			"%2d  %-22s  %s%s  %s",
@@ -197,11 +249,15 @@ local function render_summary(opts)
 			status,
 			name,
 			string.rep(" ", width - vim.fn.strdisplaywidth(name)),
-			response.url or ""
+			response.skipped and response.reason or response.url or ""
 		)
 		table.insert(lines, line)
-		table.insert(marks, { row = i - 1, col = 4, end_col = 4 + #status, hl = status_hl(response.status.code) })
-		if response.dependency then
+		local hl = response.skipped and "DiagnosticError" or status_hl(response.status.code)
+		table.insert(marks, { row = i - 1, col = 4, end_col = 4 + #status, hl = hl })
+		if response.skipped then
+			local rest = 4 + math.max(22, #status) + 2
+			table.insert(marks, { row = i - 1, col = rest, end_col = #line, hl = "Comment" })
+		elseif response.dependency then
 			local name_col = 4 + math.max(22, #status) + 2
 			table.insert(marks, { row = i - 1, col = name_col, end_col = name_col + #name, hl = "Comment" })
 		end
@@ -213,17 +269,21 @@ local function render_summary(opts)
 		vim.api.nvim_buf_set_extmark(bufnr, ns, mark.row, mark.col, { end_col = mark.end_col, hl_group = mark.hl })
 	end
 	for i, response in ipairs(state.responses) do
+		local virt_text = {}
+		for _, chunk in ipairs(check_chunks(response)) do
+			table.insert(virt_text, { "  " .. chunk[1], chunk[2] })
+		end
 		if response.dependency then
-			vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, 0, {
-				virt_text = { { "  dependency", "Comment" } },
-				virt_text_pos = "eol",
-			})
+			table.insert(virt_text, { "  dependency", "Comment" })
+		end
+		if #virt_text > 0 then
+			vim.api.nvim_buf_set_extmark(bufnr, ns, i - 1, 0, { virt_text = virt_text, virt_text_pos = "eol" })
 		end
 	end
 
 	local failed, deps = 0, 0
 	for _, response in ipairs(state.responses) do
-		if response.status.code >= 400 then
+		if response.status and response.status.code >= 400 then
 			failed = failed + 1
 		end
 		if response.dependency then
@@ -232,10 +292,11 @@ local function render_summary(opts)
 	end
 	set_winbar(
 		string.format(
-			" %s%d requests%s%%*%%#Comment#%s%s%s%%*",
+			" %s%d requests%s%%*%s%%#Comment#%s%s%s%%*",
 			failed > 0 and "%#DiagnosticWarn#" or "%#DiagnosticOk#",
 			#state.responses,
 			failed > 0 and string.format(", %d 4xx/5xx", failed) or "",
+			state.run_summary and string.format(" · %%#DiagnosticError#%s%%*", escape(state.run_summary)) or "",
 			deps > 0 and string.format(" · %d %s", deps, deps == 1 and "dependency" or "dependencies") or "",
 			state.total_ms and string.format(" · %d ms", state.total_ms) or "",
 			hint(opts.keymaps.open, "to open")
@@ -244,20 +305,52 @@ local function render_summary(opts)
 	set_cursor(state.summary_row)
 end
 
+local function render_skipped(response, opts)
+	set_lines(state.bufnr, { "Not sent: " .. response.reason }, "text")
+	local position = state.summary and string.format("%d/%d  ", state.current, #state.responses) or ""
+	set_winbar(
+		string.format(
+			"%%#DiagnosticError# SKIP %%*  %s%s%s%%#Comment#%s%%*",
+			position,
+			escape(response.name or ""),
+			response.dependency and " %#Comment#(dependency)%*" or "",
+			state.summary and hint(opts.keymaps.back, state.chain and "for the chain" or "for all") or ""
+		)
+	)
+	set_cursor(1)
+end
+
 local function render_response(response, opts)
 	local bufnr = state.bufnr
 	vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+	if response.skipped then
+		return render_skipped(response, opts)
+	end
+	local topfill
 	if state.view == "headers" then
 		set_lines(bufnr, header_lines(response), "http")
 	else
 		set_lines(bufnr, body_lines(response, opts), filetype_for(response))
+		-- Failed checks above the body, as virtual lines so the body is untouched.
+		local virt_lines = {}
+		for _, check in ipairs(checks.failures(response)) do
+			local spec = checks.levels[check.level]
+			table.insert(virt_lines, {
+				{ string.format("%s %-7s", spec.icon, check.level), spec.hl },
+				{ string.format("%s: %s", check.check, check.error or "failed"), "Comment" },
+			})
+		end
+		if #virt_lines > 0 then
+			vim.api.nvim_buf_set_extmark(bufnr, ns, 0, 0, { virt_lines = virt_lines, virt_lines_above = true })
+			topfill = #virt_lines
+		end
 	end
 
 	local position = state.summary and string.format("%d/%d  ", state.current, #state.responses) or ""
 	local code = response.status.code
 	set_winbar(
 		string.format(
-			"%%#%s# %d %s %%*  %s%s%s  %%#Comment#%s%s · [%s]%s%s%%*",
+			"%%#%s# %d %s %%*  %s%s%s  %%#Comment#%s%s%%*%s%%#Comment# · [%s]%s%s%%*",
 			status_hl(code),
 			code,
 			escape(response.status.reason or ""),
@@ -266,12 +359,13 @@ local function render_response(response, opts)
 			response.dependency and " %#Comment#(dependency)%*" or "",
 			escape(response.url or ""),
 			response.duration_ms and string.format(" · %d ms", response.duration_ms) or "",
+			check_badge(response),
 			state.view,
 			hint(opts.keymaps.toggle_headers, "to toggle"),
 			state.summary and hint(opts.keymaps.back, state.chain and "for the chain" or "for all") or ""
 		)
 	)
-	set_cursor(1)
+	set_cursor(1, topfill)
 end
 
 local function render(opts)
@@ -304,14 +398,17 @@ end
 function M.show(response, opts)
 	prepare(opts)
 	state.responses, state.summary, state.current, state.total_ms = { response }, false, 1, nil
+	state.run_summary = nil
 	render(opts)
 end
 
 --- Displays the responses of several requests as a summary list, or, with
 --- `open`, the response at that position, with <BS> going back to the list.
-function M.show_all(responses, total_ms, opts, open)
+--- `run_summary` is axon-cli's summary when checks failed.
+function M.show_all(responses, total_ms, opts, open, run_summary)
 	prepare(opts)
 	state.responses, state.summary, state.current, state.total_ms = responses, true, open, total_ms
+	state.run_summary = run_summary
 	state.summary_row = open or 1
 	state.chain = vim.iter(responses):any(function(response)
 		return response.dependency == true
