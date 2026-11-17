@@ -96,7 +96,7 @@ local function header_lines(response)
 		table.insert(lines, "")
 		table.insert(lines, "# checks")
 		for _, check in ipairs(response.checks) do
-			local line = string.format("%s @%s %s", check.ok and "✓" or "✗", check.level, check.check)
+			local line = string.format("%s @%s %s", check.ok and "✓" or "✗", checks.keyword(check), check.check)
 			if not check.ok then
 				line = line .. ": " .. (check.error or "failed")
 			end
@@ -336,7 +336,7 @@ local function render_response(response, opts)
 		for _, check in ipairs(checks.failures(response)) do
 			local spec = checks.levels[check.level]
 			table.insert(virt_lines, {
-				{ string.format("%s %-7s", spec.icon, check.level), spec.hl },
+				{ string.format("%s %-10s", spec.icon, checks.keyword(check)), spec.hl },
 				{ string.format("%s: %s", check.check, check.error or "failed"), "Comment" },
 			})
 		end

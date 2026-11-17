@@ -11,6 +11,14 @@ M.levels = {
 }
 M.order = { "assert", "warn", "notice" }
 
+local if_keywords = { assert = "fail-if", warn = "warn-if", notice = "notice-if" }
+
+--- The directive a check was written with, without `@`: its level, or for a
+--- check that reports when true (`"if": true`), `fail-if`, `warn-if` or `notice-if`.
+function M.keyword(check)
+	return check["if"] and if_keywords[check.level] or check.level
+end
+
 --- Counts a response's checks: `total`, and failures per level.
 ---@return { total: integer, failed: integer, assert: integer, warn: integer, notice: integer }
 function M.count(response)
@@ -38,14 +46,14 @@ function M.failures(response)
 	return failed
 end
 
--- The row of the `@level text` line in rows first..last, or nil.
-local function find_check(lines, first, last, level, text)
+-- The row of the `@keyword text` line in rows first..last, or nil.
+local function find_check(lines, first, last, keyword, text)
 	for row = first, last do
 		local line = lines[row + 1]
 		if line then
 			local rest = vim.trim(line)
 			rest = rest:match("^#(.*)") or rest:match("^//(.*)")
-			rest = rest and vim.trim(rest):match("^@" .. level .. "%s+(.*)$")
+			rest = rest and vim.trim(rest):match("^@" .. vim.pesc(keyword) .. "%s+(.*)$")
 			if rest and vim.trim(rest) == text then
 				return row
 			end
@@ -94,9 +102,10 @@ function M.report(bufnr, entries, listing)
 			if request then
 				for _, check in ipairs(entry.checks or {}) do
 					if not check.ok then
-						local row = find_check(lines, request.start_row, request.end_row, check.level, check.check)
+						local row = find_check(lines, request.start_row, request.end_row, M.keyword(check), check.check)
 							or request.start_row
-						local message = string.format("@%s %s: %s", check.level, check.check, check.error or "failed")
+						local message =
+							string.format("@%s %s: %s", M.keyword(check), check.check, check.error or "failed")
 						if entry.element then
 							message = string.format("[%d] %s", entry.element, message)
 						end
