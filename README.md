@@ -21,6 +21,7 @@ require("axon").setup({
   cmd = "axon-cli",           -- or an absolute path to axon-cli
   args = {},                  -- arguments for axon-cli
   split = "botright vsplit",  -- command to split window
+  win_options = { wrap = false, number = false, relativenumber = false }, -- response window options
   format_json = true,         -- format json
   jq = "jq",                  -- jq for formatting
   strict = false,             -- pass --strict: a failed @warn fails the run like @assert

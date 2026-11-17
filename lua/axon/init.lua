@@ -10,6 +10,7 @@ local defaults = {
 	cmd = "axon-cli",
 	args = {},
 	split = "botright vsplit", -- command used to open the response window
+	win_options = { wrap = false, number = false, relativenumber = false }, -- for the response window
 	format_json = true,
 	jq = "jq",
 	strict = false, -- pass --strict: a failed @warn fails the run like @assert

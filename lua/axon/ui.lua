@@ -200,9 +200,9 @@ local function ensure_window(bufnr, opts)
 	vim.cmd(opts.split)
 	win = vim.api.nvim_get_current_win()
 	vim.api.nvim_win_set_buf(win, bufnr)
-	vim.wo[win].wrap = false
-	vim.wo[win].number = false
-	vim.wo[win].relativenumber = false
+	for name, value in pairs(opts.win_options or {}) do
+		vim.wo[win][name] = value
+	end
 	vim.api.nvim_set_current_win(current)
 	return win
 end
