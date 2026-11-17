@@ -85,10 +85,10 @@ Requests that use another request's response (`{{login.response.body.$.token}}`)
 
 ## Checks
 
-`# @assert`, `# @warn` and `# @notice` lines (see the [axon-cli README](https://github.com/desdic/axon-cli#checks)) are shown in three places:
+`# @assert`, `# @warn` and `# @notice` lines, and their inverted forms `# @fail-if`, `# @warn-if` and `# @notice-if` (see the [axon-cli README](https://github.com/desdic/axon-cli#checks)) are shown in three places:
 
 - **The `.http` buffer**: each failed check is a diagnostic on its line (`@assert` an error, `@warn` a warning, `@notice` info), so it shows in the sign column and `]d`/`[d` jump between them. For a looping request, the message names the element (`[1] @notice …`). A request that was not sent because a request it uses failed an assert gets an info diagnostic on its `###` line. Each run replaces the previous run's diagnostics. Set `diagnostics = false` to turn this off.
 - **The response window**: the winbar shows `✓ 3 checks` when everything passed, or the failures per level (`✗ 1 assert ⚠ 1 warn`). The failed checks are listed above the body, and the headers view (`H`) ends with a `# checks` section listing every check, passing ones included.
 - **The summary list**: each row shows its check results; skipped requests are `SKIP` rows with the reason, and the winbar shows axon-cli's summary (`1 check failed, 1 request skipped`).
 
-This needs axon-cli 0.5 (it uses `--json --with-deps` and the `checks` field).
+This needs axon-cli 0.5.1 or newer for the `-if` forms (it uses `--json --with-deps` and the `checks` field).
