@@ -9,9 +9,12 @@ local M = {}
 ---@field method string
 ---@field url string
 ---@field start_row integer 0-based first row of the request's `###` block
----@field end_row integer 0-based last row of the block
+---@field end_row integer 0-based last row of the block, in `file`
+---@field file string|nil the file the request is written in (nil from an older axon-cli)
+---@field in_buffer boolean written in the listed file itself, not imported from another
 
---- Returns all requests in `file`, in file order.
+--- Returns all requests in `file`, in file order, including those it imports
+--- (`in_buffer` is false for them; their rows refer to their own file).
 ---@param file string
 ---@return axon.Request[]|nil
 ---@return string|nil err
@@ -45,6 +48,8 @@ function M.requests(file)
 			url = entry.url,
 			start_row = entry.start_line - 1,
 			end_row = entry.end_line - 1,
+			file = entry.file,
+			in_buffer = entry.file == nil or entry.file == file,
 		})
 	end
 	return requests

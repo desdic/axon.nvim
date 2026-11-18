@@ -63,7 +63,8 @@ end
 
 --- Reports the failed checks and skipped requests of a run as diagnostics in
 --- `bufnr`, replacing those of the previous run. `listing` is every request
---- in the buffer, so the checks of dependencies are found too.
+--- in the buffer, so the checks of dependencies are found too; imported
+--- requests are left out, since their lines are in another file.
 ---@param bufnr integer
 ---@param entries table[] flattened responses (see init.lua)
 ---@param listing axon.Request[]
@@ -73,8 +74,11 @@ function M.report(bufnr, entries, listing)
 	end
 	local by_index, by_selector = {}, {}
 	for _, request in ipairs(listing or {}) do
-		by_index[request.index] = request
-		by_selector[request.selector] = request
+		-- An imported request's rows are in another file, not this buffer.
+		if request.in_buffer ~= false then
+			by_index[request.index] = request
+			by_selector[request.selector] = request
+		end
 	end
 	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 
