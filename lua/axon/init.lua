@@ -34,14 +34,48 @@ function M.setup(opts)
 	M.config = vim.tbl_deep_extend("force", vim.deepcopy(defaults), opts or {})
 end
 
+-- The file axon-cli reads for buffer `bufnr`, and the snapshot to remove
+-- afterwards, if one was written. A modified buffer is written to a hidden
+-- file next to the real one, so `import` paths relative to it still work.
 local function source_file(bufnr)
 	local path = vim.api.nvim_buf_get_name(bufnr)
 	if path ~= "" and not vim.bo[bufnr].modified then
 		return path, nil
 	end
+	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+	if path ~= "" then
+		local tmp = string.format(
+			"%s/.axon-%s-%d.http",
+			vim.fn.fnamemodify(path, ":p:h"),
+			vim.fn.fnamemodify(path, ":t:r"),
+			vim.uv.os_getpid()
+		)
+		if pcall(vim.fn.writefile, lines, tmp) and vim.fn.filereadable(tmp) == 1 then
+			return tmp, tmp
+		end
+	end
+	-- Unnamed buffer, or its directory is not writable: imports relative
+	-- to the file are not found from here.
 	local tmp = vim.fn.tempname() .. ".http"
-	vim.fn.writefile(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), tmp)
+	vim.fn.writefile(lines, tmp)
 	return tmp, tmp
+end
+
+-- The requests written in the buffer itself, without imported ones: their
+-- line ranges refer to other files.
+local function own(listing)
+	return vim.tbl_filter(function(request)
+		return request.in_buffer
+	end, listing)
+end
+
+-- The request of the buffer whose line range holds 0-based `row`.
+local function request_at(listing, row)
+	for _, request in ipairs(own(listing)) do
+		if row >= request.start_row and row <= request.end_row then
+			return request
+		end
+	end
 end
 
 local function display_name(request)
@@ -250,11 +284,10 @@ function M.run()
 	if not listing then
 		return
 	end
-	for _, request in ipairs(listing) do
-		if row >= request.start_row and row <= request.end_row then
-			run_request(bufnr, request, file, listing, tmp)
-			return
-		end
+	local request = request_at(listing, row)
+	if request then
+		run_request(bufnr, request, file, listing, tmp)
+		return
 	end
 	cleanup(tmp)
 	vim.notify("axon: no request under the cursor", vim.log.levels.WARN)
@@ -269,7 +302,11 @@ function M.pick()
 	vim.ui.select(requests, {
 		prompt = "Axon request",
 		format_item = function(request)
-			return string.format("%s  %s %s", display_name(request), request.method, request.url)
+			local item = string.format("%s  %s %s", display_name(request), request.method, request.url)
+			if not request.in_buffer then
+				item = item .. "  (" .. vim.fn.fnamemodify(request.file, ":t") .. ")"
+			end
+			return item
 		end,
 	}, function(request)
 		if request then
@@ -286,8 +323,15 @@ function M.run_all()
 	if not requests then
 		return
 	end
+	-- Imported requests still run when a request of the buffer uses them.
+	local mine = own(requests)
+	if #mine == 0 then
+		cleanup(tmp)
+		vim.notify("axon: no requests in this buffer (only imported ones)", vim.log.levels.WARN)
+		return
+	end
 	last = { bufnr = bufnr, all = true }
-	execute(bufnr, file, requests, requests, tmp)
+	execute(bufnr, file, mine, requests, tmp)
 end
 
 -- Copies the axon-cli command for `requests` in buffer `bufnr` to the
@@ -326,11 +370,10 @@ function M.copy(json)
 	if not listing then
 		return
 	end
-	for _, request in ipairs(listing) do
-		if row >= request.start_row and row <= request.end_row then
-			copy_command(bufnr, { request }, json)
-			return
-		end
+	local request = request_at(listing, row)
+	if request then
+		copy_command(bufnr, { request }, json)
+		return
 	end
 	vim.notify("axon: no request under the cursor", vim.log.levels.WARN)
 end
@@ -345,7 +388,7 @@ function M.copy_last(json)
 		local listing, _, tmp = buffer_requests(last.bufnr)
 		cleanup(tmp)
 		if listing then
-			copy_command(last.bufnr, listing, json)
+			copy_command(last.bufnr, own(listing), json)
 		end
 		return
 	end
@@ -366,7 +409,7 @@ function M.rerun()
 		return
 	end
 	if last.all then
-		execute(last.bufnr, file, listing, listing, tmp)
+		execute(last.bufnr, file, own(listing), listing, tmp)
 		return
 	end
 	-- Find the request again so edits that moved it are picked up.

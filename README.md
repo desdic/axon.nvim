@@ -72,8 +72,8 @@ vim.api.nvim_create_autocmd("FileType", {
 | Command | Description |
 |---|---|
 | `:AxonRun` | Run the request under the cursor |
-| `:AxonRunAll` | Run every request in the buffer, in order, in one axon-cli call so cookies carry over |
-| `:AxonPick` | Pick a request in the buffer from a list (`vim.ui.select`) and run it |
+| `:AxonRunAll` | Run every request in the buffer, in order, in one axon-cli call so cookies carry over (imported requests run only when one of them uses them) |
+| `:AxonPick` | Pick a request in the buffer, or one it imports (shown with its file name), from a list (`vim.ui.select`) and run it |
 | `:AxonRerun` | Run the last request (or all of them, after `:AxonRunAll`) again, picking up any edits |
 | `:AxonCopy[!]` | Copy the axon-cli command for the request under the cursor to the clipboard and show it; `!` adds `--json --with-deps`, as the plugin runs it. `yc` in the response window copies the command of the last run |
 | `:AxonToggleHeaders` | Switch the response between body and status line + headers |
@@ -84,6 +84,14 @@ Requests that use another request's response (`{{login.response.body.$.token}}`)
 
 - `:AxonRun` on a request with dependencies opens its response directly; the winbar shows `2/2` and `<BS>` goes back to the list of every response sent, with dependencies dimmed and marked `dependency`. `<CR>` opens any of them, e.g. to see what `login` returned.
 - A looping request shows one row per iteration (`details [0]`, `details [1]`, …).
+
+## Imports
+
+A file with `import common.http` at the top (see the [axon-cli README](https://github.com/desdic/axon-cli#imports)) can use the requests and variables of `common.http`:
+
+- `:AxonRun` and `:AxonCopy` only find the requests written in the buffer; imported ones run when a request uses them, and appear in `:AxonPick` with their file name.
+- Check diagnostics are only placed for the buffer's own requests.
+- With unsaved changes, the buffer is written to a hidden `.axon-NAME-PID.http` next to the file for the run (and removed afterwards), so relative `import` paths keep working.
 
 ## Checks
 
