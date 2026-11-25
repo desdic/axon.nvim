@@ -4,7 +4,7 @@ local checks = require("axon.checks")
 
 local M = {}
 
-M.cli_version = "1.1"
+M.cli_version = "1.2"
 
 local defaults = {
 	cmd = "axon-cli",
