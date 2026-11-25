@@ -9,7 +9,7 @@ Run requests from `.http` files in Neovim using [axon-cli](https://github.com/de
 ## Requirements
 
 - Neovim 0.12+
-- `axon-cli` 1.1.x on `$PATH`, or set with `cmd`
+- `axon-cli` 1.2.x on `$PATH`, or set with `cmd`
 - `jq` (optional), which pretty-prints JSON bodies without changing key order
 
 Run `:checkhealth axon` to check all of these.
@@ -101,4 +101,4 @@ A file with `import common.http` at the top (see the [axon-cli README](https://g
 - **The response window**: the winbar shows `✓ 3 checks` when everything passed, or the failures per level (`✗ 1 assert ⚠ 1 warn`). The failed checks are listed above the body, and the headers view (`H`) ends with a `# checks` section listing every check, passing ones included.
 - **The summary list**: each row shows its check results; skipped requests are `SKIP` rows with the reason, and the winbar shows axon-cli's summary (`1 check failed, 1 request skipped`).
 
-This needs axon-cli 1.1.x for the `-if` forms (it uses `--json --with-deps` and the `checks` field).
+This needs axon-cli 1.2.x for the `-if` forms (it uses `--json --with-deps` and the `checks` field).
